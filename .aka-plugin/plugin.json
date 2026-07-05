@@ -1,0 +1,10 @@
+{
+  "name": "shell_restore",
+  "version": "0.1.0",
+  "description": "Akashic shell restore safety plugin",
+  "akashic": {
+    "lifecycle": {
+      "entry": "plugin.py"
+    }
+  }
+}
