@@ -15,6 +15,7 @@ def _restore_dir() -> str:
 
 class ShellRestore(Plugin):
     name = "shell_restore"
+    version = "1.0.0"
 
     @on_tool_pre(tool_name="shell")
     async def rewrite_rm_to_mv(self, event: PreToolCtx) -> dict[str, object] | None:
