@@ -37,6 +37,6 @@
 [prefix...] mv -- <target1> <target2> ... <restore_dir>
 ```
 
-`restore_dir` 默认为 `~/restore`，可通过环境变量 `AKASIC_RESTORE_DIR` 覆盖。目录若不存在则在改写时自动创建。
+`restore_dir` 默认是当前插件 `data_dir/restore`，可通过环境变量 `AKASIC_RESTORE_DIR` 显式覆盖。目录若不存在则在改写时自动创建。
 
 改写后的命令字典替换原 `arguments` 并继续执行，LLM 感知不到任何变化。

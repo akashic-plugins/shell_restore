@@ -9,10 +9,6 @@ from agent.lifecycle.types import PreToolCtx
 logger = logging.getLogger("plugin.shell_restore")
 
 
-def _restore_dir() -> str:
-    return os.environ.get("AKASIC_RESTORE_DIR", str(Path.home() / "restore"))
-
-
 class ShellRestore(Plugin):
     name = "shell_restore"
     version = "1.0.0"
@@ -23,7 +19,7 @@ class ShellRestore(Plugin):
         rewritten = self._rewrite_command(command)
         if rewritten is None:
             return None
-        Path(_restore_dir()).mkdir(parents=True, exist_ok=True)
+        Path(self._restore_dir()).mkdir(parents=True, exist_ok=True)
         logger.info("[%s:%s] rm → mv: %r", self.name, self.rewrite_rm_to_mv.__name__, rewritten)
         return dict(event.arguments, command=rewritten)
 
@@ -68,5 +64,14 @@ class ShellRestore(Plugin):
         # 改写为 mv -- targets... restore_dir
         parts = [*prefix, "mv", "--"]
         parts.extend(targets)
-        parts.append(_restore_dir())
+        parts.append(self._restore_dir())
         return shlex.join(parts)
+
+    def _restore_dir(self) -> str:
+        explicit = os.environ.get("AKASIC_RESTORE_DIR", "").strip()
+        if explicit:
+            return explicit
+        data_dir = self.context.data_dir
+        if data_dir is None:
+            raise RuntimeError("shell_restore 缺少插件数据目录")
+        return str(data_dir / "restore")
