@@ -269,6 +269,7 @@ async def test_v3_plugin_loads_through_real_generation_manager(
         plugin_home / "shell_restore",
         ignore=shutil.ignore_patterns(
             ".git",
+            ".akashic-core",
             ".pytest_cache",
             "__pycache__",
         ),
