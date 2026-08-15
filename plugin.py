@@ -27,6 +27,47 @@ _SHELL_CONTROL = {
     "(",
     ")",
 }
+_SUDO_COMMAND_FLAGS = {
+    "-n",
+    "--non-interactive",
+    "-A",
+    "--askpass",
+    "-b",
+    "--background",
+    "-B",
+    "--bell",
+    "-E",
+    "--preserve-env",
+    "-H",
+    "--set-home",
+    "-k",
+    "--reset-timestamp",
+    "-K",
+    "--remove-timestamp",
+    "-P",
+    "--preserve-groups",
+    "-S",
+    "--stdin",
+}
+_SUDO_OPTIONS_WITH_VALUE = {
+    "-u",
+    "--user",
+    "-g",
+    "--group",
+    "-p",
+    "--prompt",
+    "-C",
+    "--close-from",
+    "-D",
+    "--chdir",
+    "-R",
+    "--chroot",
+    "-T",
+    "--command-timeout",
+    "--host",
+}
+_SUDO_COMMAND_SHORT_FLAGS = frozenset("nAbBEHkKPS")
+_SUDO_SHORT_OPTIONS_WITH_VALUE = frozenset({"u", "g", "p", "C", "D", "R", "T"})
 
 api_version = 3
 name = "shell_restore"
@@ -75,7 +116,15 @@ def _rewrite_command(command: str, restore_dir: Path) -> str | None:
         token = tokens[index]
         if Path(token).name == "rm":
             break
-        if token == "sudo" or token == "env" or "=" in token:
+        if token == "sudo":
+            prefix.append(token)
+            index += 1
+            consumed = _consume_sudo_options(tokens, index, prefix)
+            if consumed is None:
+                return None
+            index = consumed
+            continue
+        if token == "env" or "=" in token:
             prefix.append(token)
             index += 1
             continue
@@ -111,3 +160,69 @@ def _restore_dir(data_root: Path) -> Path:
     if explicit:
         return Path(explicit)
     return data_root / "restore"
+
+
+def _consume_sudo_options(
+    tokens: list[str],
+    index: int,
+    prefix: list[str],
+) -> int | None:
+    while index < len(tokens):
+        token = tokens[index]
+        if token == "--":
+            prefix.append(token)
+            return index + 1
+        if not token.startswith("-") or token == "-":
+            return index
+        if token in _SUDO_COMMAND_FLAGS:
+            prefix.append(token)
+            index += 1
+            continue
+        if token.startswith("--") and "=" in token:
+            option = token.split("=", 1)[0]
+            if (
+                option not in _SUDO_OPTIONS_WITH_VALUE
+                and option != "--preserve-env"
+            ):
+                return None
+            prefix.append(token)
+            index += 1
+            continue
+        if token.startswith("-") and not token.startswith("--") and len(token) > 2:
+            consumed = _consume_sudo_short_cluster(tokens, index, prefix)
+            if consumed is None:
+                return None
+            index = consumed
+            continue
+        if token not in _SUDO_OPTIONS_WITH_VALUE:
+            return None
+        prefix.append(token)
+        index += 1
+        if index >= len(tokens):
+            return None
+        prefix.append(tokens[index])
+        index += 1
+    return index
+
+
+def _consume_sudo_short_cluster(
+    tokens: list[str],
+    index: int,
+    prefix: list[str],
+) -> int | None:
+    token = tokens[index]
+    cluster = token[1:]
+    for offset, option in enumerate(cluster):
+        if option in _SUDO_COMMAND_SHORT_FLAGS:
+            continue
+        if option not in _SUDO_SHORT_OPTIONS_WITH_VALUE:
+            return None
+        prefix.append(token)
+        if offset + 1 < len(cluster):
+            return index + 1
+        if index + 1 >= len(tokens):
+            return None
+        prefix.append(tokens[index + 1])
+        return index + 2
+    prefix.append(token)
+    return index + 1

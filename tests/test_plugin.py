@@ -58,6 +58,62 @@ def test_rewrite_sudo_rm_keeps_prefix(tmp_path: Path) -> None:
     assert rewritten == f"sudo mv -- /tmp/a.txt {tmp_path}"
 
 
+def test_rewrite_sudo_non_interactive_rm_keeps_option(tmp_path: Path) -> None:
+    rewritten = shell_restore._rewrite_command(
+        "sudo -n rm -rf /tmp/a.txt",
+        tmp_path,
+    )
+    assert rewritten == f"sudo -n mv -- /tmp/a.txt {tmp_path}"
+
+    clustered = shell_restore._rewrite_command(
+        "sudo -nE rm /tmp/a.txt",
+        tmp_path,
+    )
+    assert clustered == f"sudo -nE mv -- /tmp/a.txt {tmp_path}"
+
+    preserve_env = shell_restore._rewrite_command(
+        "sudo -n --preserve-env=HOME rm /tmp/a.txt",
+        tmp_path,
+    )
+    assert preserve_env == (
+        f"sudo -n --preserve-env=HOME mv -- /tmp/a.txt {tmp_path}"
+    )
+
+
+def test_rewrite_sudo_option_value_keeps_prefix(tmp_path: Path) -> None:
+    rewritten = shell_restore._rewrite_command(
+        "sudo -u root -n rm /tmp/a.txt",
+        tmp_path,
+    )
+    assert rewritten == f"sudo -u root -n mv -- /tmp/a.txt {tmp_path}"
+
+    long_option = shell_restore._rewrite_command(
+        "sudo --user root -n rm /tmp/a.txt",
+        tmp_path,
+    )
+    assert long_option == f"sudo --user root -n mv -- /tmp/a.txt {tmp_path}"
+
+    clustered_value = shell_restore._rewrite_command(
+        "sudo -nuroot rm /tmp/a.txt",
+        tmp_path,
+    )
+    assert clustered_value == f"sudo -nuroot mv -- /tmp/a.txt {tmp_path}"
+
+
+@pytest.mark.parametrize("mode_flag", ["-e", "-l", "-s", "-i", "-v", "-h"])
+def test_sudo_mode_flags_are_not_treated_as_command_prefix(
+    mode_flag: str,
+    tmp_path: Path,
+) -> None:
+    assert (
+        shell_restore._rewrite_command(
+            f"sudo -n {mode_flag} rm /tmp/a.txt",
+            tmp_path,
+        )
+        is None
+    )
+
+
 def test_rewrite_multiple_targets(tmp_path: Path) -> None:
     rewritten = shell_restore._rewrite_command(
         "rm -rf /tmp/a /tmp/b /tmp/c",
