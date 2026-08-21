@@ -1,14 +1,15 @@
+from __future__ import annotations
+
 import logging
 import os
 import shlex
 from pathlib import Path
 
-from agent.plugins import Plugin, on_tool_pre
-from agent.lifecycle.types import PreToolCtx
+from agent.plugin_composition import Context
+from agent.tools.events import TOOL_INPUT_PREPARE, ToolInput
 
 logger = logging.getLogger("plugin.shell_restore")
 
-# 遇到这些 shell 控制符时放弃改写（复杂命令语法无法用 shlex 安全重组）。
 _SHELL_CONTROL = {
     "&&",
     "||",
@@ -26,79 +27,202 @@ _SHELL_CONTROL = {
     "(",
     ")",
 }
+_SUDO_COMMAND_FLAGS = {
+    "-n",
+    "--non-interactive",
+    "-A",
+    "--askpass",
+    "-b",
+    "--background",
+    "-B",
+    "--bell",
+    "-E",
+    "--preserve-env",
+    "-H",
+    "--set-home",
+    "-k",
+    "--reset-timestamp",
+    "-K",
+    "--remove-timestamp",
+    "-P",
+    "--preserve-groups",
+    "-S",
+    "--stdin",
+}
+_SUDO_OPTIONS_WITH_VALUE = {
+    "-u",
+    "--user",
+    "-g",
+    "--group",
+    "-p",
+    "--prompt",
+    "-C",
+    "--close-from",
+    "-D",
+    "--chdir",
+    "-R",
+    "--chroot",
+    "-T",
+    "--command-timeout",
+    "--host",
+}
+_SUDO_COMMAND_SHORT_FLAGS = frozenset("nAbBEHkKPS")
+_SUDO_SHORT_OPTIONS_WITH_VALUE = frozenset({"u", "g", "p", "C", "D", "R", "T"})
+
+api_version = 3
+name = "shell_restore"
+version = "2.0.0"
+desc = "把简单 rm 调用改写到插件自有还原目录"
+author = "Akashic"
+inject: tuple[()] = ()
 
 
-class ShellRestore(Plugin):
-    api_version = 2
-    name = "shell_restore"
-    version = "1.0.2"
+async def apply(ctx: Context, config: object) -> None:
+    """Register the shell argument transform against this generation data root."""
 
-    @on_tool_pre(tool_name="shell")
-    async def rewrite_rm_to_mv(self, event: PreToolCtx) -> dict[str, object] | None:
-        command = str(event.arguments.get("command", "")).strip()
-        rewritten = self._rewrite_command(command)
+    # 1. Core 只分配路径；插件拥有还原目录和命令改写规则。
+    _ = config
+    restore_dir = _restore_dir(ctx.data_root)
+
+    # 2. Transform 只处理 shell，其他工具原样通过。
+    def rewrite_rm_to_mv(tool_input: ToolInput) -> ToolInput:
+        if tool_input.tool_name != "shell":
+            return tool_input
+        command = str(tool_input.arguments.get("command", "")).strip()
+        rewritten = _rewrite_command(command, restore_dir)
         if rewritten is None:
-            return None
-        Path(self._restore_dir()).mkdir(parents=True, exist_ok=True)
-        logger.info(
-            "[%s:%s] rm → mv: %r",
-            self.name,
-            self.rewrite_rm_to_mv.__name__,
-            rewritten,
-        )
-        return dict(event.arguments, command=rewritten)
+            return tool_input
+        restore_dir.mkdir(parents=True, exist_ok=True)
+        logger.info("[%s:rewrite_rm_to_mv] rm → mv: %r", name, rewritten)
+        arguments = tool_input.mutable_arguments()
+        arguments["command"] = rewritten
+        return tool_input.with_arguments(arguments)
 
-    def _rewrite_command(self, command: str) -> str | None:
-        try:
-            tokens = shlex.split(command, posix=True)
-        except ValueError:
-            return None
-        if not tokens:
-            return None
-        # 读取 rm 前面的前缀（sudo、env、VAR=val 等）。
-        prefix: list[str] = []
-        i = 0
-        while i < len(tokens):
-            token = tokens[i]
-            if Path(token).name == "rm":
-                break
-            if token == "sudo" or token == "env" or "=" in token:
-                prefix.append(token)
-                i += 1
-                continue
-            return None
-        if i >= len(tokens) or Path(tokens[i]).name != "rm":
-            return None
-        # 跳过 rm 名字本身。
-        i += 1
-        # 跳过 rm 选项，收集目标路径；遇到 shell 控制符则放行。
-        targets: list[str] = []
-        parsing_options = True
-        while i < len(tokens):
-            token = tokens[i]
-            i += 1
-            if token in _SHELL_CONTROL or token.startswith("$("):
+    _ = await ctx.on(TOOL_INPUT_PREPARE, rewrite_rm_to_mv)
+
+
+def _rewrite_command(command: str, restore_dir: Path) -> str | None:
+    try:
+        tokens = shlex.split(command, posix=True)
+    except ValueError:
+        return None
+    if not tokens:
+        return None
+
+    # 1. 读取 rm 前面的前缀（sudo、env、VAR=val 等）。
+    prefix: list[str] = []
+    index = 0
+    while index < len(tokens):
+        token = tokens[index]
+        if Path(token).name == "rm":
+            break
+        if token == "sudo":
+            prefix.append(token)
+            index += 1
+            consumed = _consume_sudo_options(tokens, index, prefix)
+            if consumed is None:
                 return None
-            if parsing_options and token == "--":
-                parsing_options = False
-                continue
-            if parsing_options and token.startswith("-") and token != "-":
-                continue
-            parsing_options = False
-            targets.append(token)
-        if not targets:
-            return None
-        # 改写为 mv -- targets... restore_dir。
-        parts = [*prefix, "mv", "--"]
-        parts.extend(targets)
-        parts.append(self._restore_dir())
-        return shlex.join(parts)
+            index = consumed
+            continue
+        if token == "env" or "=" in token:
+            prefix.append(token)
+            index += 1
+            continue
+        return None
+    if index >= len(tokens) or Path(tokens[index]).name != "rm":
+        return None
 
-    def _restore_dir(self) -> str:
-        explicit = os.environ.get("AKASIC_RESTORE_DIR", "").strip()
-        if explicit:
-            return explicit
-        data_dir = self.context.data_dir
-        if data_dir is None:
-            raise RuntimeError("shell_restore 缺少插件数据目录")
-        return str(data_dir / "restore")
+    # 2. 跳过 rm 与 option，复杂 shell 语法保持原样放行。
+    index += 1
+    targets: list[str] = []
+    parsing_options = True
+    while index < len(tokens):
+        token = tokens[index]
+        index += 1
+        if token in _SHELL_CONTROL or token.startswith("$("):
+            return None
+        if parsing_options and token == "--":
+            parsing_options = False
+            continue
+        if parsing_options and token.startswith("-") and token != "-":
+            continue
+        parsing_options = False
+        targets.append(token)
+    if not targets:
+        return None
+
+    # 3. 改写为 mv -- targets... restore_dir。
+    return shlex.join([*prefix, "mv", "--", *targets, str(restore_dir)])
+
+
+def _restore_dir(data_root: Path) -> Path:
+    explicit = os.environ.get("AKASIC_RESTORE_DIR", "").strip()
+    if explicit:
+        return Path(explicit)
+    return data_root / "restore"
+
+
+def _consume_sudo_options(
+    tokens: list[str],
+    index: int,
+    prefix: list[str],
+) -> int | None:
+    while index < len(tokens):
+        token = tokens[index]
+        if token == "--":
+            prefix.append(token)
+            return index + 1
+        if not token.startswith("-") or token == "-":
+            return index
+        if token in _SUDO_COMMAND_FLAGS:
+            prefix.append(token)
+            index += 1
+            continue
+        if token.startswith("--") and "=" in token:
+            option = token.split("=", 1)[0]
+            if (
+                option not in _SUDO_OPTIONS_WITH_VALUE
+                and option != "--preserve-env"
+            ):
+                return None
+            prefix.append(token)
+            index += 1
+            continue
+        if token.startswith("-") and not token.startswith("--") and len(token) > 2:
+            consumed = _consume_sudo_short_cluster(tokens, index, prefix)
+            if consumed is None:
+                return None
+            index = consumed
+            continue
+        if token not in _SUDO_OPTIONS_WITH_VALUE:
+            return None
+        prefix.append(token)
+        index += 1
+        if index >= len(tokens):
+            return None
+        prefix.append(tokens[index])
+        index += 1
+    return index
+
+
+def _consume_sudo_short_cluster(
+    tokens: list[str],
+    index: int,
+    prefix: list[str],
+) -> int | None:
+    token = tokens[index]
+    cluster = token[1:]
+    for offset, option in enumerate(cluster):
+        if option in _SUDO_COMMAND_SHORT_FLAGS:
+            continue
+        if option not in _SUDO_SHORT_OPTIONS_WITH_VALUE:
+            return None
+        prefix.append(token)
+        if offset + 1 < len(cluster):
+            return index + 1
+        if index + 1 >= len(tokens):
+            return None
+        prefix.append(tokens[index + 1])
+        return index + 2
+    prefix.append(token)
+    return index + 1

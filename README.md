@@ -6,13 +6,13 @@
 
 | 接入方式 | 阶段 |
 |---|---|
-| `@on_tool_pre(tool_name="shell")` | shell 工具执行前——改写命令参数 |
+| `tool.input.prepare` | v3 串行 transform，只改写 shell 的 arguments |
 
 ## 运作逻辑
 
 ### 1. 拦截 shell 工具
 
-每次 LLM 调用 `shell` 工具时，钩子接收 `PreToolCtx`，取出 `arguments["command"]` 字符串。
+每次 LLM 调用 `shell` 工具时，transform 接收不可变 `ToolInput`，从只读 arguments view 取出 `command`。插件通过 `with_arguments()` 返回新的参数；call identity 仍由 Core 保持。
 
 ### 2. 解析命令（_rewrite_command）
 
@@ -35,12 +35,13 @@
 [prefix...] mv -- <target1> <target2> ... <restore_dir>
 ```
 
-`restore_dir` 默认是当前插件 `data_dir/restore`，可通过环境变量 `AKASIC_RESTORE_DIR` 显式覆盖。目录若不存在则在改写时自动创建。
+`restore_dir` 默认是 Core 分配给当前 generation 的 `ctx.data_root/restore`，目录结构和写入仍由插件自己拥有；也可通过环境变量 `AKASIC_RESTORE_DIR` 显式覆盖。目录若不存在则在改写时自动创建。
 
 改写后的命令字典替换原 `arguments` 并继续执行，LLM 感知不到任何变化。
 
 ## 版本记录
 
+- `2.0.0` 迁移到 API v3：通过 typed `tool.input.prepare` 注册 transform，移除 PluginContext/ToolHook 依赖。
 - `1.0.0` 初始改写逻辑（04-30 迁移自 builtin tool-hook）。
 - `1.0.1` 空插件（08-03 移除改写，担心 shlex 无法理解不同 Shell 完整语法）。
 - `1.0.2` 恢复改写（08-09），并新增 shell 控制符放行边界：复杂命令一律不拦截，只处理简单 `rm` 形式。
