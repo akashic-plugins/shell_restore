@@ -3,10 +3,11 @@ from __future__ import annotations
 import logging
 import os
 import shlex
+from collections.abc import Mapping
 from pathlib import Path
 
 from agent.plugin_composition import Context
-from agent.tools.events import TOOL_INPUT_PREPARE, ToolInput
+from plugins.tools.plugin import TOOLS
 
 logger = logging.getLogger("plugin.shell_restore")
 
@@ -71,10 +72,10 @@ _SUDO_SHORT_OPTIONS_WITH_VALUE = frozenset({"u", "g", "p", "C", "D", "R", "T"})
 
 api_version = 3
 name = "shell_restore"
-version = "2.0.0"
+version = "3.0.0"
 desc = "把简单 rm 调用改写到插件自有还原目录"
 author = "Akashic"
-inject: tuple[()] = ()
+inject = (TOOLS,)
 
 
 async def apply(ctx: Context, config: object) -> None:
@@ -84,21 +85,19 @@ async def apply(ctx: Context, config: object) -> None:
     _ = config
     restore_dir = _restore_dir(ctx.data_root)
 
-    # 2. Transform 只处理 shell，其他工具原样通过。
-    def rewrite_rm_to_mv(tool_input: ToolInput) -> ToolInput:
-        if tool_input.tool_name != "shell":
-            return tool_input
-        command = str(tool_input.arguments.get("command", "")).strip()
+    # 2. Shell binding 固定这一位参数 owner，恢复继续使用同一实现。
+    async def rewrite_rm_to_mv(arguments: Mapping[str, object]) -> Mapping[str, object]:
+        command = str(arguments.get("command", "")).strip()
         rewritten = _rewrite_command(command, restore_dir)
         if rewritten is None:
-            return tool_input
+            return arguments
         restore_dir.mkdir(parents=True, exist_ok=True)
         logger.info("[%s:rewrite_rm_to_mv] rm → mv: %r", name, rewritten)
-        arguments = tool_input.mutable_arguments()
-        arguments["command"] = rewritten
-        return tool_input.with_arguments(arguments)
+        return {**arguments, "command": rewritten}
 
-    _ = await ctx.on(TOOL_INPUT_PREPARE, rewrite_rm_to_mv)
+    _ = await ctx.require(TOOLS).register_prepare(
+        ctx, tool="shell", name="restore", prepare=rewrite_rm_to_mv,
+    )
 
 
 def _rewrite_command(command: str, restore_dir: Path) -> str | None:
