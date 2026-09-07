@@ -88,8 +88,10 @@ async def test_real_tools_execution_moves_file_and_receipt_does_not_repeat(tmp_p
     )
     source = tmp_path / "valuable file.txt"
     source.write_text("keep me", encoding="utf-8")
+    authorized = []
 
-    async def allow(_binding: str, _arguments: object):
+    async def allow(_binding: str, arguments: object):
+        authorized.append(arguments)
         return {"allowed": True}
 
     try:
@@ -118,6 +120,8 @@ async def test_real_tools_execution_moves_file_and_receipt_does_not_repeat(tmp_p
         restored = restore_dirs[0] / source.name
         assert restored.read_text(encoding="utf-8") == "keep me"
         assert json.loads(cast(str, result.parts[0].value))["process_status"] == "succeeded"
+        assert len(authorized) == 1
+        assert cast(dict[str, object], authorized[0])["command"].startswith("mv -- ")
     finally:
         await host.terminate_all()
         log.close()
