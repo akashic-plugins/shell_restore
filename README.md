@@ -41,6 +41,7 @@
 
 ## 版本记录
 
+- `3.0.0` 使用 Tools binding 的单一 prepare owner 固定改写实现，恢复不依赖当前安装。
 - `2.0.0` 迁移到 API v3：通过 typed `tool.input.prepare` 注册 transform，移除 PluginContext/ToolHook 依赖。
 - `1.0.0` 初始改写逻辑（04-30 迁移自 builtin tool-hook）。
 - `1.0.1` 空插件（08-03 移除改写，担心 shlex 无法理解不同 Shell 完整语法）。
