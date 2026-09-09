@@ -85,7 +85,7 @@ async def test_real_tools_execution_moves_file_and_receipt_does_not_repeat(tmp_p
     host, store, log, _artifacts, sources = environment(tmp_path)
     shutil.copytree(
         Path(__file__).parents[1], sources / "shell_restore",
-        ignore=shutil.ignore_patterns(".git", ".pytest_cache", "__pycache__", "tests"),
+        ignore=shutil.ignore_patterns(".git", ".akashic-core", ".plugin-contracts", ".venv", "node_modules", ".pytest_cache", "__pycache__", "tests"),
     )
     source = tmp_path / "valuable file.txt"
     source.write_text("keep me", encoding="utf-8")
@@ -134,7 +134,7 @@ async def test_abandon_before_start_does_not_move_file(tmp_path: Path) -> None:
     host, store, log, _artifacts, sources = environment(tmp_path)
     shutil.copytree(
         Path(__file__).parents[1], sources / "shell_restore",
-        ignore=shutil.ignore_patterns(".git", ".pytest_cache", "__pycache__", "tests"),
+        ignore=shutil.ignore_patterns(".git", ".akashic-core", ".plugin-contracts", ".venv", "node_modules", ".pytest_cache", "__pycache__", "tests"),
     )
     source = tmp_path / "keep.txt"
     source.write_text("still here", encoding="utf-8")
