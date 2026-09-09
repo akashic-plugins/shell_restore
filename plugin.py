@@ -8,6 +8,7 @@ from pathlib import Path
 
 from agent.plugin_composition import Context
 from plugins.tools.plugin import TOOLS
+from plugins.standard_tools.plugin import STANDARD_TOOLS
 
 logger = logging.getLogger("plugin.shell_restore")
 
@@ -75,7 +76,7 @@ name = "shell_restore"
 version = "3.0.0"
 desc = "把简单 rm 调用改写到插件自有还原目录"
 author = "Akashic"
-inject = (TOOLS,)
+inject = (TOOLS, STANDARD_TOOLS)
 
 
 async def apply(ctx: Context, config: object) -> None:
@@ -96,7 +97,7 @@ async def apply(ctx: Context, config: object) -> None:
         return {**arguments, "command": rewritten}
 
     _ = await ctx.require(TOOLS).register_prepare(
-        ctx, tool="shell", name="restore", prepare=rewrite_rm_to_mv,
+        ctx, tool=ctx.require(STANDARD_TOOLS).select("shell"), name="restore", prepare=rewrite_rm_to_mv,
     )
 
 
