@@ -17,6 +17,7 @@ from plugins.content.plugin import check_text
 from plugins.tools.abandon import abandon_call
 from plugins.tools.api import MessageReply, result_message_id
 from plugins.tools.plugin import TOOLS
+from plugins.standard_tools.plugin import STANDARD_TOOLS
 from session.message import CallRef, Control, Output, ToolCall, ToolResult
 from tests.test_standard_tools import environment
 
@@ -25,7 +26,7 @@ def test_v3_namespace_is_loadable() -> None:
     loaded = ComposablePlugin.from_module(shell_restore)
     assert loaded.name == "shell_restore"
     assert loaded.version == "3.0.0"
-    assert loaded.inject == (TOOLS,)
+    assert loaded.inject == (TOOLS, STANDARD_TOOLS)
 
 
 def test_rewrite_simple_rm(tmp_path: Path) -> None:
@@ -99,7 +100,7 @@ async def test_real_tools_execution_moves_file_and_receipt_does_not_repeat(tmp_p
         bindings = Bindings(log, host._archive, host.open_binding)
         async with lease_runtime_snapshot(host.snapshot_store) as snapshot:
             catalog = snapshot.composition_root.context.require(TOOLS)
-            binding = catalog.bind("shell", bindings, configuration={
+            binding = catalog.bind(snapshot.composition_root.context.require(STANDARD_TOOLS).select("shell"), bindings, configuration={
                 "working_dir": str(tmp_path), "allow_network": False,
             })
             assert bindings.describe(binding, TOOLS)["prepare"] == "restore"
@@ -142,7 +143,7 @@ async def test_abandon_before_start_does_not_move_file(tmp_path: Path) -> None:
         bindings = Bindings(log, host._archive, host.open_binding)
         async with lease_runtime_snapshot(host.snapshot_store) as snapshot:
             catalog = snapshot.composition_root.context.require(TOOLS)
-            binding = catalog.bind("shell", bindings, configuration={"working_dir": str(tmp_path)})
+            binding = catalog.bind(snapshot.composition_root.context.require(STANDARD_TOOLS).select("shell"), bindings, configuration={"working_dir": str(tmp_path)})
             output = log.writer(
                 "abandon", author="assistant", source="conversation", body_types=(Output,),
                 content={}, check_call=lambda call: None,
