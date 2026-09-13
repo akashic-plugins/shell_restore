@@ -7,8 +7,8 @@ from collections.abc import Mapping
 from pathlib import Path
 
 from agent.plugin_composition import Context
-from plugins.tools.plugin import TOOLS
-from plugins.standard_tools.plugin import STANDARD_TOOLS
+
+from ._tool_contract import STANDARD_TOOLS, TOOLS
 
 logger = logging.getLogger("plugin.shell_restore")
 

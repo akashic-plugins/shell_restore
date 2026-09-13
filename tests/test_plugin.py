@@ -1,13 +1,34 @@
 from __future__ import annotations
 
 import json
+import importlib.util
 import shutil
+import sys
 from pathlib import Path
 from typing import cast
 
 import pytest
 
-import plugin as shell_restore
+
+
+def _load_plugin():
+    path = Path(__file__).parents[1] / "plugin.py"
+    package_name = "shell_restore_test_plugin"
+    package = type(sys)(package_name)
+    package.__path__ = [str(path.parent)]
+    sys.modules[package_name] = package
+    spec = importlib.util.spec_from_file_location(
+        package_name + ".plugin", path, submodule_search_locations=[str(path.parent)],
+    )
+    if spec is None or spec.loader is None:
+        raise ImportError(str(path))
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+shell_restore = _load_plugin()
 from agent.plugin_composition.bindings import Bindings
 from agent.plugin_composition.messages import OWNER_STATE
 from agent.plugin_composition.tasks import TASKS
