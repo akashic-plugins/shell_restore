@@ -79,11 +79,10 @@ author = "Akashic"
 inject = (TOOLS, STANDARD_TOOLS)
 
 
-async def apply(ctx: Context, config: object) -> None:
+async def apply(ctx: Context) -> None:
     """Register the shell argument transform against this generation data root."""
 
     # 1. Core 只分配路径；插件拥有还原目录和命令改写规则。
-    _ = config
     restore_dir = _restore_dir(ctx.data_root)
 
     # 2. Shell binding 固定这一位参数 owner，恢复继续使用同一实现。

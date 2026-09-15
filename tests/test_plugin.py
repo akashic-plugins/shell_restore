@@ -34,6 +34,7 @@ from agent.plugin_composition.messages import OWNER_STATE
 from agent.plugin_composition.tasks import TASKS
 from agent.plugins.composable import ComposablePlugin
 from agent.plugins.snapshot import lease_runtime_snapshot
+from agent.plugins.static_manifest import load_static_plugin_manifest
 from plugins.content.plugin import check_text
 from plugins.tools.abandon import abandon_call
 from plugins.tools.api import MessageReply, result_message_id
@@ -44,7 +45,9 @@ from tests.test_standard_tools import environment
 
 
 def test_v3_namespace_is_loadable() -> None:
-    loaded = ComposablePlugin.from_module(shell_restore)
+    loaded = ComposablePlugin.from_module(
+        shell_restore, load_static_plugin_manifest(Path(__file__).resolve().parents[1]),
+    )
     assert loaded.name == "shell_restore"
     assert loaded.version == "3.0.0"
     assert loaded.inject == (TOOLS, STANDARD_TOOLS)
@@ -118,8 +121,8 @@ async def test_real_tools_execution_moves_file_and_receipt_does_not_repeat(tmp_p
 
     try:
         await host.load_all()
-        bindings = Bindings(log, host._archive, host.open_binding)
         async with lease_runtime_snapshot(host.snapshot_store) as snapshot:
+            bindings = Bindings(log, host._archive, snapshot.composition_root)
             catalog = snapshot.composition_root.context.require(TOOLS)
             binding = catalog.bind(snapshot.composition_root.context.require(STANDARD_TOOLS).select("shell"), bindings, configuration={
                 "working_dir": str(tmp_path), "allow_network": False,
@@ -161,8 +164,8 @@ async def test_abandon_before_start_does_not_move_file(tmp_path: Path) -> None:
     source.write_text("still here", encoding="utf-8")
     try:
         await host.load_all()
-        bindings = Bindings(log, host._archive, host.open_binding)
         async with lease_runtime_snapshot(host.snapshot_store) as snapshot:
+            bindings = Bindings(log, host._archive, snapshot.composition_root)
             catalog = snapshot.composition_root.context.require(TOOLS)
             binding = catalog.bind(snapshot.composition_root.context.require(STANDARD_TOOLS).select("shell"), bindings, configuration={"working_dir": str(tmp_path)})
             output = log.writer(
