@@ -29,11 +29,10 @@ def _load_plugin():
 
 
 shell_restore = _load_plugin()
-from agent.plugin_composition.bindings import Bindings
+from agent.plugin_composition.bindings import BINDINGS
 from agent.plugin_composition.messages import OWNER_STATE
 from agent.plugin_composition.tasks import TASKS
 from agent.plugins.composable import ComposablePlugin
-from agent.plugins.snapshot import lease_runtime_snapshot
 from agent.plugins.static_manifest import load_static_plugin_manifest
 from plugins.content.plugin import check_text
 from plugins.tools.abandon import abandon_call
@@ -121,10 +120,14 @@ async def test_real_tools_execution_moves_file_and_receipt_does_not_repeat(tmp_p
 
     try:
         await host.load_all()
-        async with lease_runtime_snapshot(host.snapshot_store) as snapshot:
-            bindings = Bindings(log, host._archive, snapshot.composition_root)
-            catalog = snapshot.composition_root.context.require(TOOLS)
-            binding = catalog.bind(snapshot.composition_root.context.require(STANDARD_TOOLS).select("shell"), bindings, configuration={
+        root = host.live_root
+        assert root is not None
+        tool_generation = host.generation("tools")
+        assert tool_generation is not None and tool_generation.fiber is not None
+        async with tool_generation.fiber.context.runtime_scope():
+            bindings = root.context.require(BINDINGS)
+            catalog = root.context.require(TOOLS)
+            binding = catalog.bind(root.context.require(STANDARD_TOOLS).select("shell"), bindings, configuration={
                 "working_dir": str(tmp_path), "allow_network": False,
             })
             assert bindings.describe(binding, TOOLS)["prepare"] == "restore"
@@ -137,16 +140,16 @@ async def test_real_tools_execution_moves_file_and_receipt_does_not_repeat(tmp_p
             result = await execution.execute("remove", binding, arguments)
             repeated = await execution.execute("remove", binding, arguments)
 
-        assert result.outcome == "success", result
-        assert repeated == result
-        assert not source.exists()
-        restore_dirs = list((tmp_path / "workspace" / "plugin-data").glob("shell_restore-*/restore"))
-        assert len(restore_dirs) == 1
-        restored = restore_dirs[0] / source.name
-        assert restored.read_text(encoding="utf-8") == "keep me"
-        assert json.loads(cast(str, result.parts[0].value))["process_status"] == "succeeded"
-        assert len(authorized) == 1
-        assert cast(dict[str, object], authorized[0])["command"].startswith("mv -- ")
+            assert result.outcome == "success", result
+            assert repeated == result
+            assert not source.exists()
+            restore_dirs = list((tmp_path / "workspace" / "plugin-data").glob("shell_restore-*/restore"))
+            assert len(restore_dirs) == 1
+            restored = restore_dirs[0] / source.name
+            assert restored.read_text(encoding="utf-8") == "keep me"
+            assert json.loads(cast(str, result.parts[0].value))["process_status"] == "succeeded"
+            assert len(authorized) == 1
+            assert cast(dict[str, object], authorized[0])["command"].startswith("mv -- ")
     finally:
         await host.terminate_all()
         log.close()
@@ -164,10 +167,14 @@ async def test_abandon_before_start_does_not_move_file(tmp_path: Path) -> None:
     source.write_text("still here", encoding="utf-8")
     try:
         await host.load_all()
-        async with lease_runtime_snapshot(host.snapshot_store) as snapshot:
-            bindings = Bindings(log, host._archive, snapshot.composition_root)
-            catalog = snapshot.composition_root.context.require(TOOLS)
-            binding = catalog.bind(snapshot.composition_root.context.require(STANDARD_TOOLS).select("shell"), bindings, configuration={"working_dir": str(tmp_path)})
+        root = host.live_root
+        assert root is not None
+        tool_generation = host.generation("tools")
+        assert tool_generation is not None and tool_generation.fiber is not None
+        async with tool_generation.fiber.context.runtime_scope():
+            bindings = root.context.require(BINDINGS)
+            catalog = root.context.require(TOOLS)
+            binding = catalog.bind(root.context.require(STANDARD_TOOLS).select("shell"), bindings, configuration={"working_dir": str(tmp_path)})
             output = log.writer(
                 "abandon", author="assistant", source="conversation", body_types=(Output,),
                 content={}, check_call=lambda call: None,
@@ -189,9 +196,9 @@ async def test_abandon_before_start_does_not_move_file(tmp_path: Path) -> None:
             tasks = catalog._ctx.require(TASKS).open(catalog._ctx)
             result = await abandon_call(owner, tasks, reply, task_key="effects")
 
-        assert result.outcome == "denied"
-        assert source.read_text(encoding="utf-8") == "still here"
-        assert not list((tmp_path / "workspace" / "plugin-data").glob("shell_restore-*/restore"))
+            assert result.outcome == "denied"
+            assert source.read_text(encoding="utf-8") == "still here"
+            assert not list((tmp_path / "workspace" / "plugin-data").glob("shell_restore-*/restore"))
     finally:
         await host.terminate_all()
         log.close()
