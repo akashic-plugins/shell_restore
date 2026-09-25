@@ -8,7 +8,7 @@ from pathlib import Path
 
 from agent.plugin_composition import Context
 
-from ._tool_contract import STANDARD_TOOLS, TOOLS
+from agent.plugin_contracts.tools import TOOLS, tool_key
 
 logger = logging.getLogger("plugin.shell_restore")
 
@@ -76,7 +76,7 @@ name = "shell_restore"
 version = "3.0.0"
 desc = "把简单 rm 调用改写到插件自有还原目录"
 author = "Akashic"
-inject = (TOOLS, STANDARD_TOOLS)
+inject = (TOOLS, tool_key("shell"))
 
 
 async def apply(ctx: Context) -> None:
@@ -96,7 +96,7 @@ async def apply(ctx: Context) -> None:
         return {**arguments, "command": rewritten}
 
     _ = await ctx.require(TOOLS).register_prepare(
-        ctx, tool=ctx.require(STANDARD_TOOLS).select("shell"), name="restore", prepare=rewrite_rm_to_mv,
+        ctx, tool=ctx.require(tool_key("shell")), name="restore", prepare=rewrite_rm_to_mv,
     )
 
 
