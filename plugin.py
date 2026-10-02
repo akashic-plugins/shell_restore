@@ -8,7 +8,7 @@ from pathlib import Path
 
 from agent.plugin_composition import Context
 
-from ._tool_contract import STANDARD_TOOLS, TOOLS
+from agent.plugin_contracts.tools import TOOLS, tool_key
 
 logger = logging.getLogger("plugin.shell_restore")
 
@@ -76,14 +76,13 @@ name = "shell_restore"
 version = "3.0.0"
 desc = "把简单 rm 调用改写到插件自有还原目录"
 author = "Akashic"
-inject = (TOOLS, STANDARD_TOOLS)
+inject = (TOOLS, tool_key("shell"))
 
 
-async def apply(ctx: Context, config: object) -> None:
+async def apply(ctx: Context) -> None:
     """Register the shell argument transform against this generation data root."""
 
     # 1. Core 只分配路径；插件拥有还原目录和命令改写规则。
-    _ = config
     restore_dir = _restore_dir(ctx.data_root)
 
     # 2. Shell binding 固定这一位参数 owner，恢复继续使用同一实现。
@@ -97,7 +96,7 @@ async def apply(ctx: Context, config: object) -> None:
         return {**arguments, "command": rewritten}
 
     _ = await ctx.require(TOOLS).register_prepare(
-        ctx, tool=ctx.require(STANDARD_TOOLS).select("shell"), name="restore", prepare=rewrite_rm_to_mv,
+        ctx, tool=ctx.require(tool_key("shell")), name="restore", prepare=rewrite_rm_to_mv,
     )
 
 
