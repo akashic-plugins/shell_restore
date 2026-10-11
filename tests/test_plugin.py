@@ -29,16 +29,16 @@ def _load_plugin():
 
 
 shell_restore = _load_plugin()
-from agent.plugin_composition.messages import OWNER_STATE
+from plugins.ledger.contract import OWNER_STATE, MESSAGE_CATALOG, MESSAGE_WRITERS
 from agent.plugin_composition.tasks import TASKS
 from runtime_fixture import environment, tool_scope
-from agent.plugin_composition.bindings import BINDINGS
-from agent.plugin_contracts.tools import tool_key
+from plugins.ledger.contract import BINDINGS
+from plugins.tools.contract import tool_key
 from plugins.content.plugin import check_text
 from plugins.tools.abandon import abandon_call
 from plugins.tools.api import MessageReply, result_message_id
 from plugins.tools.plugin import TOOLS
-from session.message import CallRef, Control, Output, ToolCall, ToolResult
+from plugins.ledger.contract import CallRef, Control, Output, ToolCall, ToolResult
 
 
 
@@ -158,28 +158,20 @@ async def test_abandon_before_start_does_not_move_file(tmp_path: Path) -> None:
             catalog = ctx.require(TOOLS)
             bindings = ctx.require(BINDINGS)
             binding = await catalog.bind(ctx.require(tool_key("shell")), bindings, configuration={"working_dir": str(tmp_path)})
-            output = log.writer(
-                "abandon", author="assistant", source="conversation", body_types=(Output,),
-                content={}, check_call=lambda call: None,
-            )
+            output = ctx.require(MESSAGE_WRITERS).bind(ctx, author='assistant', source='conversation', body_types=(Output,), content={}, check_call=lambda call: None)('abandon')
             output.append("remove-call", Output((ToolCall(binding, {
                 "command": f"rm {source}", "description": "abandon fixture", "login": False,
             }),), "continue"))
             ref = CallRef("remove-call", 0)
-            writer = log.writer(
-                "abandon", author="tool", source="conversation", body_types=(ToolResult,),
-                content={"text": check_text}, call_ref=ref,
-            )
-            reply = MessageReply(result_message_id(ref), ref, log.reader("abandon"), writer, lambda: None)
-            control = log.writer(
-                "abandon", author="user", source="conversation", body_types=(Control,), content={},
-            )
+            writer = ctx.require(MESSAGE_WRITERS).bind(ctx, author='tool', source='conversation', body_types=(ToolResult,), content={'text': check_text})('abandon', call_ref=ref)
+            reply = MessageReply(result_message_id(ref), ref, ctx.require(MESSAGE_CATALOG).reader('abandon'), writer, lambda: None)
+            control = ctx.require(MESSAGE_WRITERS).bind(ctx, author='user', source='conversation', body_types=(Control,), content={})('abandon')
             control.append("abandon-control", Control("abandon", reply.reader.head(source="conversation")))
             owner = catalog._ctx.require(OWNER_STATE).open(catalog._ctx)
             tasks = catalog._ctx.require(TASKS).open(catalog._ctx)
             result = await abandon_call(owner, tasks, reply, task_key="effects")
 
-        assert result.outcome == "denied"
+        assert result.outcome == "interrupted"
         assert source.read_text(encoding="utf-8") == "still here"
         assert not list((tmp_path / "workspace" / "plugin-data").glob("shell_restore-*/restore"))
     finally:
